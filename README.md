@@ -71,6 +71,22 @@ To use your phone's camera, open `http://<your-computer's-local-IP>:8000` on the
 
 Your staples list is saved to `staples.json` next to `server.py` (ignored by git).
 
+### Optional: Sentry Agent Tracing
+
+Want to see where the time goes? Fridge Sloth can send traces to [Sentry Agent Tracing](https://docs.sentry.io/product/agents/getting-started/).
+It's **off unless you set `SENTRY_DSN`**:
+
+```shell
+pip install -r requirements-sentry.txt
+SENTRY_DSN=https://...ingest.sentry.io/... python3 server.py
+```
+
+Each scan becomes an `invoke_agent` trace with one `chat` span per Gemma call (`vision`, `matching`, `recipes`),
+with the model, token counts and Ollama's own timings (model load, prompt processing, generation).
+
+**Only metadata is sent.** The photo, the prompts and Gemma's answers never leave your machine;
+[a test](tests/test_tracing.py) checks exactly that.
+
 ## Try it with the example photos
 
 `examples/photos/` has a few real fridge photos from Wikimedia Commons (see [credits](examples/CREDITS.md)).
@@ -98,7 +114,7 @@ python3 -m venv .venv
 .venv/bin/pre-commit install
 
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
-.venv/bin/mypy server.py scripts tests
+.venv/bin/mypy server.py tracing.py scripts tests
 .venv/bin/pytest
 ```
 

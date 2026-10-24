@@ -11,6 +11,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import tracing
+
 ROOT = Path(__file__).parent
 STAPLES_FILE = ROOT / "staples.json"
 INDEX_FILE = ROOT / "static" / "index.html"
@@ -137,7 +139,9 @@ def load_staples() -> list[str]:
     return DEFAULT_STAPLES
 
 
-def ask_gemma(message: dict[str, Any], schema: dict[str, Any], temperature: float = 0) -> Any:
+def ask_gemma(
+    message: dict[str, Any], schema: dict[str, Any], temperature: float = 0, step: str = ""
+) -> Any:
     body = {
         "model": MODEL,
         "stream": False,
@@ -150,8 +154,11 @@ def ask_gemma(message: dict[str, Any], schema: dict[str, Any], temperature: floa
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        return json.loads(json.loads(resp.read())["message"]["content"])
+    with tracing.chat(step, MODEL, temperature) as span:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            response = json.loads(resp.read())
+        tracing.record_response(span, response)
+    return json.loads(response["message"]["content"])
 
 
 def fallback_match(staple: str, amounts: dict[str, str]) -> dict[str, str]:
@@ -169,9 +176,21 @@ def fallback_match(staple: str, amounts: dict[str, str]) -> dict[str, str]:
 
 
 def scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
+    with tracing.agent("scan", MODEL) as span:
+        result = _scan_fridge(image_b64, staples)
+        tracing.set_result(
+            span,
+            items_seen=len(result["seen"]),
+            staples=len(staples),
+            grocery_list=len(result["grocery_list"]),
+        )
+        return result
+
+
+def _scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
     started = time.time()
     vision = {"role": "user", "content": SEEN_PROMPT, "images": [image_b64]}
-    seen = ask_gemma(vision, SEEN_SCHEMA)["seen"]
+    seen = ask_gemma(vision, SEEN_SCHEMA, step="vision")["seen"]
     amounts = {s["item"].strip().lower(): s["amount"] for s in seen}
 
     matched = ask_gemma(
@@ -183,6 +202,7 @@ def scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
             ),
         },
         MATCH_SCHEMA,
+        step="matching",
     )["staples"]
 
     # Small models sometimes drop or rename staples, or "match" to an item that was never seen.
@@ -210,18 +230,21 @@ def scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
 
 
 def suggest_recipes(items: list[str]) -> dict[str, Any]:
-    started = time.time()
-    # A little temperature so "suggest again" gives different meals.
-    result: dict[str, Any] = ask_gemma(
-        {
-            "role": "user",
-            "content": RECIPE_PROMPT.format(items="\n".join(f"- {i}" for i in items)),
-        },
-        RECIPE_SCHEMA,
-        temperature=0.7,
-    )
-    result["seconds"] = round(time.time() - started, 1)
-    return result
+    with tracing.agent("recipes", MODEL) as span:
+        started = time.time()
+        # A little temperature so "suggest again" gives different meals.
+        result: dict[str, Any] = ask_gemma(
+            {
+                "role": "user",
+                "content": RECIPE_PROMPT.format(items="\n".join(f"- {i}" for i in items)),
+            },
+            RECIPE_SCHEMA,
+            temperature=0.7,
+            step="recipes",
+        )
+        result["seconds"] = round(time.time() - started, 1)
+        tracing.set_result(span, ingredients=len(items), recipes=len(result.get("recipes", [])))
+        return result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -264,6 +287,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send(404, {"error": "not found"})
         except Exception as e:  # surface errors to the page instead of a dropped connection
+            tracing.capture(e)
             self._send(500, {"error": str(e)})
 
     def log_message(self, fmt: str, *args: Any) -> None:
@@ -272,4 +296,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"Fridge Sloth on http://localhost:{PORT} using {MODEL}")
+    if tracing.init():
+        print("Sentry Agent Tracing is on (timings and token counts only)")
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
