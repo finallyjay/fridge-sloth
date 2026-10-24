@@ -98,6 +98,18 @@ python3 scripts/try_photo.py examples/photos/usda-0017.jpg
 
 On an M1 MacBook (16 GB), a scan takes about 45 s and the recipes about 30 s with `gemma3:4b`.
 
+## Demo video
+
+The demo is a real run of the app, recorded with a scripted browser. Its voice-over is generated with
+[ElevenLabs](https://elevenlabs.io) text-to-speech by `scripts/narrate_demo.py`: one line per moment in the video,
+stitched so it sounds like one take, then mixed under the recording with ffmpeg.
+
+```shell
+pip install -r requirements-demo.txt
+npx -y @elevenlabs/cli@latest onboard init   # signs you in and puts ELEVENLABS_API_KEY in .env
+python3 scripts/narrate_demo.py silent.mp4 fridge-sloth-demo.mp4
+```
+
 ## Limitations
 
 - Works well on clear, well-lit photos. On messy or dim ones, the 4B model can miss items or misread them
