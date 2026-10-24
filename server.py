@@ -5,6 +5,7 @@ Runs fully offline on Gemma via Ollama.
 
 import json
 import os
+import re
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -161,16 +162,25 @@ def ask_gemma(
     return json.loads(response["message"]["content"])
 
 
+def mentions(item: str, name: str) -> bool:
+    """True if `name` appears in `item` as whole words, allowing singular and plural.
+
+    "cheese" is in "cheddar cheese" and "egg" counts for "eggs" (or "tomato" for "tomatoes").
+    Only this direction is checked: seeing "orange" is not "orange juice". Whole words only:
+    an "eggplant" is not an "egg".
+    """
+    name, item = name.strip().lower(), item.strip().lower()
+    stems = {name, name.removesuffix("s"), name.removesuffix("es")}
+    return any(s and re.search(rf"\b{re.escape(s)}(?:e?s)?\b", item) for s in stems)
+
+
 def fallback_match(staple: str, amounts: dict[str, str]) -> dict[str, str]:
     """Plain text match for a staple the model left out of its answer ("cheese" ~ "cheddar cheese").
 
     No text match means we can't tell, not that it's missing: the model never ruled on it.
     """
-    # Only the staple inside the seen item, never the reverse: seeing "orange" must not
-    # count as "orange juice". The singular form lets "egg" count for "eggs".
-    names = {staple.lower(), staple.lower().removesuffix("s")}
     for item in amounts:
-        if item and any(name in item for name in names):
+        if mentions(item, staple):
             return {"match": "yes", "seen_item": item}
     return {"match": "", "seen_item": ""}
 
@@ -235,24 +245,17 @@ def check_recipe_ingredients(recipes: list[dict[str, Any]], items: list[str]) ->
     Gemma sometimes ignores the rule and "uses" food that isn't there (a banana that was
     never in the photo). Returns how many ingredients were moved.
     """
-    seen = [i.strip().lower() for i in items if i.strip()]
-
-    def in_fridge(ingredient: str) -> bool:
-        # Same rule as fallback_match: the ingredient inside a seen item, never the reverse.
-        name = ingredient.strip().lower()
-        return any(n in item for item in seen for n in {name, name.removesuffix("s")} if n)
-
     moved = 0
     for recipe in recipes:
         need = recipe.setdefault("need_to_buy", [])
         uses = []
         for ingredient in recipe.get("uses", []):
-            if in_fridge(ingredient):
+            if any(mentions(item, ingredient) for item in items):
                 uses.append(ingredient)
             else:
                 moved += 1
-                if ingredient.lower() not in (n.lower() for n in need):
-                    need.append(ingredient)
+                if ingredient.strip().lower() not in (n.strip().lower() for n in need):
+                    need.append(ingredient.strip())
         recipe["uses"] = uses
     return moved
 
