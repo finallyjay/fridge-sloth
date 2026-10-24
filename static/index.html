@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fridge Sloth 🦥</title>
+<style>
+  :root { --bg: #f6f3ec; --card: #fff; --ink: #2b2a27; --muted: #7a766c; --accent: #6b8f3e; --warn: #c9822b; --bad: #b5463a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { margin: 0; font-size: 1.8rem; }
+  .tagline { color: var(--muted); margin: 4px 0 24px; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  h2 { font-size: 1.05rem; margin: 0 0 10px; }
+  label.drop { display: block; border: 2px dashed #cfc8b8; border-radius: 12px; padding: 28px; text-align: center; cursor: pointer; color: var(--muted); }
+  label.drop img { max-width: 100%; max-height: 320px; border-radius: 8px; display: block; margin: 0 auto; }
+  input[type=file] { display: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border-radius: 99px; background: #eef3e6; border: 1px solid #d5e2c3; font-size: .95rem; }
+  .chip button { width: 24px; height: 24px; padding: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 1.1rem; line-height: 1; }
+  .chip button:hover { background: #dbe6cb; color: var(--ink); }
+  .chips.suggest .chip { background: transparent; border-style: dashed; border-color: #cfc8b8; color: var(--muted); padding-right: 12px; cursor: pointer; }
+  .chips.suggest .chip:hover { border-color: var(--accent); color: var(--ink); }
+  .add-row { display: flex; gap: 8px; margin-top: 12px; }
+  .add-row input { flex: 1; min-width: 0; font: inherit; padding: 10px 12px; border: 1px solid #ddd; border-radius: 10px; }
+  .add-row input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .card-head { display: flex; align-items: baseline; gap: 8px; }
+  .card-head .meta { margin: 0 0 0 auto; }
+  .empty { color: var(--muted); font-style: italic; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 12px 18px; background: var(--accent); color: #fff; cursor: pointer; }
+  button.secondary { background: #e8e3d6; color: var(--ink); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { padding: 6px 0; border-bottom: 1px solid #f0ece2; display: flex; align-items: center; gap: 10px; }
+  li:last-child { border-bottom: 0; }
+  .pill { font-size: .75rem; padding: 2px 8px; border-radius: 99px; margin-left: auto; color: #fff; }
+  .stocked, .plenty { background: var(--accent); } .some { background: #8aa86a; }
+  .recipe { background: #5b7fa6; }
+  .low { background: var(--warn); } .missing { background: var(--bad); } .unsure { background: #9b968a; }
+  .meta { color: var(--muted); font-size: .85rem; margin-top: 8px; }
+  .error { color: var(--bad); }
+  .hidden { display: none !important; }
+  details summary { cursor: pointer; color: var(--muted); }
+  .meal { border-top: 1px solid #f0ece2; padding: 12px 0; }
+  .meal:first-child { border-top: 0; padding-top: 0; }
+  .meal h3 { margin: 0; font-size: 1rem; }
+  .meal ol { margin: 6px 0; padding-left: 20px; }
+  .meal .why { color: var(--accent); font-size: .9rem; margin: 2px 0 6px; }
+  .meal button { padding: 6px 12px; font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fridge Sloth 🦥</h1>
+  <p class="tagline">Snap your fridge. Get a grocery list. Stay on the couch. Runs 100% offline on Gemma.</p>
+
+  <div class="card">
+    <h2>1. Photo of your fridge</h2>
+    <label class="drop" id="drop">
+      <span id="dropText">Tap to take or choose a photo</span>
+      <img id="preview" class="hidden" alt="Fridge photo preview">
+      <input type="file" id="photo" accept="image/*" capture="environment">
+    </label>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>2. Always in my fridge</h2>
+      <span class="meta" id="saveState"></span>
+    </div>
+    <div class="chips" id="staples"></div>
+    <form class="add-row" id="addForm">
+      <input id="newStaple" placeholder="Add an item, e.g. spinach" maxlength="40" autocomplete="off" aria-label="Add an item">
+      <button type="submit">Add</button>
+    </form>
+    <p class="meta">Quick add:</p>
+    <div class="chips suggest" id="suggestions"></div>
+  </div>
+
+  <button id="scan" disabled>Make my grocery list</button>
+  <p class="meta" id="status"></p>
+
+  <div id="results" class="hidden">
+    <div class="card">
+      <h2>🛒 Grocery list</h2>
+      <ul id="groceries"></ul>
+      <div class="row"><button class="secondary" id="copy">Copy list</button></div>
+      <p class="meta" id="unsureNote"></p>
+    </div>
+    <div class="card">
+      <h2>🥗 Healthy meals from what you have</h2>
+      <p class="meta" id="recipeStatus"></p>
+      <div id="recipes"></div>
+      <div class="row"><button class="secondary" id="moreRecipes" disabled>Suggest different meals</button></div>
+    </div>
+    <div class="card">
+      <h2>Staples check</h2>
+      <ul id="stapleResults"></ul>
+    </div>
+    <div class="card">
+      <details>
+        <summary>Everything Gemma spotted (<span id="seenCount">0</span>)</summary>
+        <ul id="seen"></ul>
+      </details>
+      <p class="meta" id="timing"></p>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let imageData = null;
+let lastList = [];
+let staplesNeeded = [];  // staples the scan flagged as low/missing, with status
+let extras = [];         // ingredients added from recipes
+let seenItems = [];
+let lastRecipes = [];
+
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// ---- Staples editor ----
+let staples = [];
+const SUGGESTIONS = ["spinach", "greek yogurt", "berries", "bell peppers", "cucumbers", "broccoli", "chicken breast",
+  "salmon", "tofu", "hummus", "lemons", "avocados", "cottage cheese", "whole wheat tortillas"];
+const EMOJI = {
+  milk: "🥛", eggs: "🥚", butter: "🧈", cheese: "🧀", yogurt: "🥣", "greek yogurt": "🥣", "cottage cheese": "🥣",
+  tomatoes: "🍅", lettuce: "🥬", spinach: "🥬", carrots: "🥕", apples: "🍎", "orange juice": "🧃", berries: "🫐",
+  "bell peppers": "🫑", cucumbers: "🥒", broccoli: "🥦", "chicken breast": "🍗", salmon: "🐟", tofu: "🍱",
+  hummus: "🫘", lemons: "🍋", avocados: "🥑", "whole wheat tortillas": "🫓", bread: "🍞", ham: "🥓",
+};
+const emojiFor = (name) => EMOJI[name] || EMOJI[name.replace(/s$/, "")] || "🛒";
+const parseStaples = () => staples;
+const has = (name) => staples.some((s) => s.toLowerCase() === name.toLowerCase());
+
+function renderStaples() {
+  $("staples").innerHTML = staples.length
+    ? staples.map((s, i) => `<span class="chip">${emojiFor(s)} ${escapeHtml(s)}
+        <button type="button" aria-label="Remove ${escapeHtml(s)}" onclick="removeStaple(${i})">×</button></span>`).join("")
+    : `<span class="empty">Nothing yet. Add what you always want to have at home.</span>`;
+  $("suggestions").innerHTML = SUGGESTIONS.filter((s) => !has(s)).slice(0, 8)
+    .map((s) => `<span class="chip" role="button" tabindex="0" onclick="addStaple('${s}')"
+        onkeydown="if (event.key === 'Enter') addStaple('${s}')">+ ${emojiFor(s)} ${s}</span>`).join("");
+  $("saveState").textContent = `${staples.length} items`;
+}
+
+// Save automatically, but wait for a short pause so quick edits become one request.
+let saveTimer;
+function saveStaples() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    await fetch("/api/staples", { method: "POST", body: JSON.stringify(staples) });
+    $("saveState").textContent = `${staples.length} items · saved ✓`;
+  }, 400);
+}
+
+window.addStaple = (raw) => {
+  // Typing "kale, leeks" adds both.
+  const names = raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  for (const name of names) if (!has(name)) staples.push(name);
+  renderStaples();
+  saveStaples();
+};
+
+window.removeStaple = (i) => {
+  staples.splice(i, 1);
+  renderStaples();
+  saveStaples();
+};
+
+$("addForm").onsubmit = (e) => {
+  e.preventDefault();
+  addStaple($("newStaple").value);
+  $("newStaple").value = "";
+  $("newStaple").focus();
+};
+
+// Backspace in an empty box removes the last chip, like most tag inputs.
+$("newStaple").addEventListener("keydown", (e) => {
+  if (e.key === "Backspace" && !e.target.value && staples.length) removeStaple(staples.length - 1);
+});
+
+fetch("/api/staples").then((r) => r.json()).then((list) => {
+  staples = list;
+  renderStaples();
+});
+
+// Shrink photos before sending: phone pictures are huge and a 1024px image is plenty for Gemma.
+$("photo").onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    imageData = canvas.toDataURL("image/jpeg", 0.85);
+    $("preview").src = imageData;
+    $("preview").classList.remove("hidden");
+    $("dropText").classList.add("hidden");
+    $("scan").disabled = false;
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(file);
+};
+
+const item = (text, status) => `<li>${escapeHtml(text)}<span class="pill ${status}">${status}</span></li>`;
+
+function renderGroceries() {
+  lastList = [...staplesNeeded.map((s) => s.name), ...extras];
+  $("groceries").innerHTML = lastList.length
+    ? [...staplesNeeded.map((s) => item(s.name, s.status)), ...extras.map((e) => item(e, "recipe"))].join("")
+    : "<li>Nothing to buy. Back to the couch. 🦥</li>";
+}
+
+window.addToList = (i) => {
+  for (const ing of lastRecipes[i].need_to_buy) {
+    if (!lastList.some((x) => x.toLowerCase() === ing.toLowerCase())) extras.push(ing);
+  }
+  renderGroceries();
+};
+
+async function loadRecipes() {
+  $("moreRecipes").disabled = true;
+  $("recipeStatus").className = "meta";
+  $("recipeStatus").textContent = "Gemma is thinking up something healthy…";
+  $("recipes").innerHTML = "";
+  try {
+    const res = await fetch("/api/recipes", { method: "POST", body: JSON.stringify({ items: seenItems }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    lastRecipes = data.recipes;
+    $("recipes").innerHTML = lastRecipes.map((r, i) => `
+      <div class="meal">
+        <h3>${escapeHtml(r.name)} <span class="meta">· ${r.minutes} min</span></h3>
+        <p class="why">${escapeHtml(r.why_healthy)}</p>
+        <p class="meta">From your fridge: ${r.uses.map(escapeHtml).join(", ") || "—"}</p>
+        ${r.need_to_buy.length ? `<p class="meta">To buy: ${r.need_to_buy.map(escapeHtml).join(", ")}
+          <button class="secondary" onclick="addToList(${i})">Add to list</button></p>` : ""}
+        <ol>${r.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ol>
+      </div>`).join("");
+    $("recipeStatus").textContent = `Ready in ${data.seconds}s.`;
+  } catch (err) {
+    $("recipeStatus").className = "meta error";
+    $("recipeStatus").textContent = `Couldn't get recipes: ${err.message}`;
+  } finally {
+    $("moreRecipes").disabled = false;
+  }
+}
+$("moreRecipes").onclick = loadRecipes;
+
+$("scan").onclick = async () => {
+  $("scan").disabled = true;
+  $("status").className = "meta";
+  $("status").textContent = "Gemma is peering into your fridge… (first run can take a minute while the model loads)";
+  try {
+    const res = await fetch("/api/scan", {
+      method: "POST",
+      body: JSON.stringify({ image: imageData, staples: parseStaples() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+
+    staplesNeeded = data.staples.filter((s) => data.grocery_list.includes(s.name));
+    extras = [];
+    renderGroceries();
+    seenItems = data.seen.map((s) => s.item);
+    const unsure = data.staples.filter((s) => s.status === "unsure").map((s) => s.name);
+    $("unsureNote").textContent = unsure.length ? `Couldn't tell from the photo: ${unsure.join(", ")}. Worth a quick look.` : "";
+    $("stapleResults").innerHTML = data.staples.map((s) => item(s.name, s.status)).join("");
+    $("seen").innerHTML = data.seen.map((s) => item(s.item, s.amount)).join("");
+    $("seenCount").textContent = data.seen.length;
+    $("timing").textContent = `Scanned in ${data.seconds}s with ${data.model}, on this machine. No photo left your computer.`;
+    $("results").classList.remove("hidden");
+    $("status").textContent = "";
+    loadRecipes();  // no extra tap: the lazy way
+  } catch (err) {
+    $("status").className = "meta error";
+    $("status").textContent = `Something went wrong: ${err.message}`;
+  } finally {
+    $("scan").disabled = false;
+  }
+};
+
+$("copy").onclick = async () => {
+  const text = lastList.map((s) => `- ${s}`).join("\n");
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    // navigator.clipboard is missing over plain http (e.g. opening the page from a phone on the LAN)
+    const ta = Object.assign(document.createElement("textarea"), { value: text });
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  $("copy").textContent = "Copied ✓";
+  setTimeout(() => ($("copy").textContent = "Copy list"), 1500);
+};
+</script>
+</body>
+</html>
