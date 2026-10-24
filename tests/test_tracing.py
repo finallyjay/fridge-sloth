@@ -69,6 +69,7 @@ def test_init_needs_a_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
     assert tracing.init() is True
     assert tracing.enabled is True
     assert calls[0]["send_default_pii"] is False
+    assert calls[0]["include_local_variables"] is False
 
 
 def test_scan_sends_metadata_but_never_the_photo_or_prompts(
@@ -106,3 +107,40 @@ def test_scan_sends_metadata_but_never_the_photo_or_prompts(
     assert "inside of a fridge" not in sent
     assert '"seen_item"' not in sent
     assert "cheddar" not in sent and "butter" not in sent  # no food names either
+
+
+def test_error_events_never_carry_the_photo_or_prompts(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same options as tracing.init(), with a transport that keeps what would be sent.
+    capture = CaptureTransport()
+    sentry_sdk.init(
+        dsn="https://public@example.com/1",
+        traces_sample_rate=1.0,
+        send_default_pii=False,
+        include_local_variables=False,
+        transport=capture,
+    )
+    monkeypatch.setattr(tracing, "enabled", True)
+    # A cut-off answer that isn't flagged as one: the JSON parse fails inside ask_gemma,
+    # whose local variables hold the prompt, the photo and Gemma's partial answer.
+    secret_answer = "beer" + "-x9z"  # built at runtime: Sentry also sends source code lines
+    reply = io.BytesIO(
+        json.dumps({"message": {"content": '{"seen": [{"item": "' + secret_answer}}).encode()
+    )
+    monkeypatch.setattr(server.urllib.request, "urlopen", lambda req, timeout: reply)
+    try:
+        try:
+            server.scan_fridge(SECRET_PHOTO, ["milk"])
+        except json.JSONDecodeError as e:
+            tracing.capture(e)  # what the request handler does
+        else:
+            pytest.fail("expected the cut-off answer to fail")
+        sentry_sdk.flush()
+        sent = "\n".join(capture.sent)
+
+        assert "JSONDecodeError" in sent  # the error itself is reported
+        assert SECRET_PHOTO not in sent
+        assert "inside of a fridge" not in sent
+        assert secret_answer not in sent
+    finally:
+        sentry_sdk.get_client().close()
+        sentry_sdk.init()
