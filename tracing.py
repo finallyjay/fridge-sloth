@@ -66,6 +66,17 @@ def chat(step: str, model: str, temperature: float) -> AbstractContextManager[An
     return span
 
 
+def tool(name: str) -> AbstractContextManager[Any]:
+    """A check the server runs on Gemma's output, shown as a tool call in Sentry's agent view."""
+    if not enabled:
+        return nullcontext()
+    span = sentry_sdk.start_span(op="gen_ai.execute_tool", name=f"execute_tool {name}")
+    span.set_data("gen_ai.operation.name", "execute_tool")
+    span.set_data("gen_ai.tool.name", name)
+    span.set_data("gen_ai.tool.type", "function")
+    return span
+
+
 def record_response(span: Any, response: dict[str, Any]) -> None:
     """Add the model, token counts and Ollama's own timings from an /api/chat response."""
     if span is None:

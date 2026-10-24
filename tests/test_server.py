@@ -40,17 +40,7 @@ SEEN = {
 
 
 def test_scan_fridge_statuses_and_grocery_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    ask = fake_gemma(
-        SEEN,
-        {
-            "staples": [
-                {"name": "milk", "match": "yes", "seen_item": "milk"},
-                {"name": "cheese", "match": "yes", "seen_item": "cheddar cheese"},
-                {"name": "eggs", "match": "yes", "seen_item": "eggs"},
-                {"name": "butter", "match": "no", "seen_item": ""},
-            ]
-        },
-    )
+    ask = fake_gemma(SEEN)
     monkeypatch.setattr(server, "ask_gemma", ask)
 
     result = server.scan_fridge("img", ["milk", "cheese", "eggs", "butter"])
@@ -65,61 +55,32 @@ def test_scan_fridge_statuses_and_grocery_list(monkeypatch: pytest.MonkeyPatch) 
     assert result["model"] == server.MODEL
 
 
-def test_vision_step_never_sees_the_staples_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    ask = fake_gemma(SEEN, {"staples": []})
+def test_gemma_only_looks_at_the_photo(monkeypatch: pytest.MonkeyPatch) -> None:
+    ask = fake_gemma(SEEN)  # a second call would fail: staples are matched without Gemma
     monkeypatch.setattr(server, "ask_gemma", ask)
 
-    server.scan_fridge("img", ["unicorn steaks"])
+    server.scan_fridge("img", ["unicorn steaks", "milk"])
 
-    vision, matching = ask.calls
+    (vision,) = ask.calls
     assert vision["message"]["images"] == ["img"]
     assert "unicorn" not in vision["message"]["content"]
-    assert "images" not in matching["message"]
-    assert "unicorn steaks" in matching["message"]["content"]
 
 
-def test_match_to_an_item_that_was_never_seen_is_unsure(monkeypatch: pytest.MonkeyPatch) -> None:
-    ask = fake_gemma(
-        SEEN,
-        {"staples": [{"name": "tomatoes", "match": "yes", "seen_item": "tomatoes"}]},
-    )
-    monkeypatch.setattr(server, "ask_gemma", ask)
+def test_a_flavour_is_not_the_food(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = {
+        "seen": [
+            {"item": "tomato sauce", "amount": "plenty"},
+            {"item": "orange", "amount": "plenty"},
+            {"item": "egg", "amount": "some"},
+        ]
+    }
+    monkeypatch.setattr(server, "ask_gemma", fake_gemma(seen))
 
-    result = server.scan_fridge("img", ["tomatoes", "apples"])
-
-    # "tomatoes" was claimed but never seen; "apples" was dropped by the model entirely.
-    assert result["staples"] == [
-        {"name": "tomatoes", "status": "unsure"},
-        {"name": "apples", "status": "unsure"},
-    ]
-    assert result["grocery_list"] == []
-
-
-def test_staples_the_model_dropped_fall_back_to_text_matching(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Seen with gemma3:12b: the matching step occasionally comes back without the staples.
-    ask = fake_gemma(SEEN, {"staples": []})
-    monkeypatch.setattr(server, "ask_gemma", ask)
-
-    result = server.scan_fridge("img", ["milk", "cheese", "eggs", "butter"])
+    result = server.scan_fridge("img", ["tomatoes", "orange juice", "eggs"])
 
     assert result["staples"] == [
-        {"name": "milk", "status": "stocked"},
-        {"name": "cheese", "status": "stocked"},
-        {"name": "eggs", "status": "low"},
-        {"name": "butter", "status": "unsure"},
-    ]
-
-
-def test_fallback_never_matches_a_shorter_seen_item(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen = {"seen": [{"item": "orange", "amount": "plenty"}, {"item": "egg", "amount": "some"}]}
-    monkeypatch.setattr(server, "ask_gemma", fake_gemma(seen, {"staples": []}))
-
-    result = server.scan_fridge("img", ["orange juice", "eggs"])
-
-    assert result["staples"] == [
-        {"name": "orange juice", "status": "unsure"},
+        {"name": "tomatoes", "status": "missing"},
+        {"name": "orange juice", "status": "missing"},
         {"name": "eggs", "status": "stocked"},
     ]
 
@@ -171,6 +132,11 @@ def test_seeing_an_orange_does_not_mean_you_have_orange_juice() -> None:
         ("eggplant", "egg", False),
         ("eggplant", "eggs", False),
         ("", "milk", False),
+        ("free-range eggs", "eggs", True),
+        ("greek yogurt", "yogurt", True),
+        ("tomato sauce", "tomatoes", False),
+        ("milk chocolate", "milk", False),
+        ("cheese balls", "cheese", False),
     ],
 )
 def test_mentions(item: str, name: str, expected: bool) -> None:
@@ -187,7 +153,7 @@ def test_an_eggplant_is_not_an_egg() -> None:
 
 def test_repeated_items_are_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
     looping = {"seen": [{"item": "Beer", "amount": "plenty"}, {"item": "beer ", "amount": "low"}]}
-    monkeypatch.setattr(server, "ask_gemma", fake_gemma(looping, {"staples": []}))
+    monkeypatch.setattr(server, "ask_gemma", fake_gemma(looping))
 
     assert server.scan_fridge("img", [])["seen"] == [{"item": "Beer", "amount": "plenty"}]
 
