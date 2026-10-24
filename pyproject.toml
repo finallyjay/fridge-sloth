@@ -10,6 +10,12 @@ authors = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+# Optional Sentry Agent Tracing (see README). Pinned versions live in requirements-sentry.txt.
+sentry = ["sentry-sdk>=2.64,<3"]
+# Only for generating the demo video's voice-over (scripts/narrate_demo.py).
+demo = ["elevenlabs>=2.74,<3", "python-dotenv>=1.2,<2"]
+
 [tool.ruff]
 target-version = "py314"
 line-length = 100
