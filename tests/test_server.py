@@ -1,3 +1,4 @@
+import io
 import json
 import threading
 import urllib.error
@@ -182,6 +183,29 @@ def test_an_eggplant_is_not_an_egg() -> None:
     assert server.check_recipe_ingredients(recipes, ["eggplant"]) == 1
     # "egg" moves to need_to_buy, without duplicating the existing "Egg ".
     assert recipes[0] == {"uses": ["eggplant"], "need_to_buy": ["Egg "]}
+
+
+def test_repeated_items_are_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+    looping = {"seen": [{"item": "Beer", "amount": "plenty"}, {"item": "beer ", "amount": "low"}]}
+    monkeypatch.setattr(server, "ask_gemma", fake_gemma(looping, {"staples": []}))
+
+    assert server.scan_fridge("img", [])["seen"] == [{"item": "Beer", "amount": "plenty"}]
+
+
+def test_cut_off_answers_fail_with_a_clear_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    reply = {"message": {"content": '{"seen": [{"item": "be'}, "done_reason": "length"}
+    monkeypatch.setattr(
+        server.urllib.request,
+        "urlopen",
+        lambda req, timeout: io.BytesIO(json.dumps(reply).encode()),
+    )
+    with pytest.raises(RuntimeError, match="cut off"):
+        server.ask_gemma({"role": "user", "content": "hi"}, {})
+
+
+def test_vision_schema_caps_the_number_of_items() -> None:
+    properties: Any = server.SEEN_SCHEMA["properties"]
+    assert properties["seen"]["maxItems"] == 30
 
 
 def test_load_staples_defaults_then_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

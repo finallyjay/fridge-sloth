@@ -20,6 +20,7 @@ INDEX_FILE = ROOT / "static" / "index.html"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 MODEL = os.environ.get("FRIDGE_MODEL", "gemma3:4b")
 PORT = int(os.environ.get("PORT", "8000"))
+MAX_ANSWER_TOKENS = 2048  # a full answer is ~300–600 tokens
 
 DEFAULT_STAPLES = [
     "milk", "eggs", "butter", "cheese", "yogurt",
@@ -33,6 +34,8 @@ SEEN_SCHEMA = {
     "properties": {
         "seen": {
             "type": "array",
+            # On messy photos the 4B model can loop, repeating items until its JSON is cut off.
+            "maxItems": 30,
             "items": {
                 "type": "object",
                 "properties": {
@@ -147,7 +150,8 @@ def ask_gemma(
         "model": MODEL,
         "stream": False,
         "format": schema,
-        "options": {"temperature": temperature},
+        # num_predict caps the answer length so a looping model fails fast instead of rambling.
+        "options": {"temperature": temperature, "num_predict": MAX_ANSWER_TOKENS},
         "messages": [message],
     }
     req = urllib.request.Request(
@@ -159,6 +163,10 @@ def ask_gemma(
         with urllib.request.urlopen(req, timeout=300) as resp:
             response = json.loads(resp.read())
         tracing.record_response(span, response)
+    if response.get("done_reason") == "length":
+        raise RuntimeError(
+            "Gemma's answer got too long and was cut off. Try again, or use a clearer photo."
+        )
     return json.loads(response["message"]["content"])
 
 
@@ -172,6 +180,14 @@ def mentions(item: str, name: str) -> bool:
     name, item = name.strip().lower(), item.strip().lower()
     stems = {name, name.removesuffix("s"), name.removesuffix("es")}
     return any(s and re.search(rf"\b{re.escape(s)}(?:e?s)?\b", item) for s in stems)
+
+
+def dedupe(seen: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Drop repeated items (same name, any case), keeping the first."""
+    unique: dict[str, dict[str, str]] = {}
+    for s in seen:
+        unique.setdefault(s["item"].strip().lower(), s)
+    return list(unique.values())
 
 
 def fallback_match(staple: str, amounts: dict[str, str]) -> dict[str, str]:
@@ -200,7 +216,7 @@ def scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
 def _scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
     started = time.time()
     vision = {"role": "user", "content": SEEN_PROMPT, "images": [image_b64]}
-    seen = ask_gemma(vision, SEEN_SCHEMA, step="vision")["seen"]
+    seen = dedupe(ask_gemma(vision, SEEN_SCHEMA, step="vision")["seen"])
     amounts = {s["item"].strip().lower(): s["amount"] for s in seen}
 
     matched = ask_gemma(
