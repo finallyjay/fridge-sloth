@@ -135,6 +135,29 @@ def test_suggest_recipes_lists_items_and_adds_timing(monkeypatch: pytest.MonkeyP
     assert ask.calls[0]["temperature"] > 0
 
 
+def test_recipe_ingredients_not_in_the_fridge_move_to_need_to_buy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recipe = {
+        "name": "Yogurt bowl",
+        "uses": ["yogurt", "banana", "egg"],
+        "need_to_buy": ["Granola", "Banana"],
+    }
+    monkeypatch.setattr(server, "ask_gemma", fake_gemma({"recipes": [recipe]}))
+
+    result = server.suggest_recipes(["greek yogurt", "eggs", "orange"])
+
+    assert result["recipes"][0]["uses"] == ["yogurt", "egg"]
+    assert result["recipes"][0]["need_to_buy"] == ["Granola", "Banana"]
+
+
+def test_seeing_an_orange_does_not_mean_you_have_orange_juice() -> None:
+    recipes: list[dict[str, Any]] = [{"uses": ["orange juice", "orange"]}]
+
+    assert server.check_recipe_ingredients(recipes, ["orange"]) == 1
+    assert recipes[0] == {"uses": ["orange"], "need_to_buy": ["orange juice"]}
+
+
 def test_load_staples_defaults_then_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(server, "STAPLES_FILE", tmp_path / "staples.json")
     assert server.load_staples() == server.DEFAULT_STAPLES

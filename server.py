@@ -229,6 +229,34 @@ def _scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
     return result
 
 
+def check_recipe_ingredients(recipes: list[dict[str, Any]], items: list[str]) -> int:
+    """Move "from your fridge" ingredients that weren't actually seen into "need to buy".
+
+    Gemma sometimes ignores the rule and "uses" food that isn't there (a banana that was
+    never in the photo). Returns how many ingredients were moved.
+    """
+    seen = [i.strip().lower() for i in items if i.strip()]
+
+    def in_fridge(ingredient: str) -> bool:
+        # Same rule as fallback_match: the ingredient inside a seen item, never the reverse.
+        name = ingredient.strip().lower()
+        return any(n in item for item in seen for n in {name, name.removesuffix("s")} if n)
+
+    moved = 0
+    for recipe in recipes:
+        need = recipe.setdefault("need_to_buy", [])
+        uses = []
+        for ingredient in recipe.get("uses", []):
+            if in_fridge(ingredient):
+                uses.append(ingredient)
+            else:
+                moved += 1
+                if ingredient.lower() not in (n.lower() for n in need):
+                    need.append(ingredient)
+        recipe["uses"] = uses
+    return moved
+
+
 def suggest_recipes(items: list[str]) -> dict[str, Any]:
     with tracing.agent("recipes", MODEL) as span:
         started = time.time()
@@ -242,8 +270,14 @@ def suggest_recipes(items: list[str]) -> dict[str, Any]:
             temperature=0.7,
             step="recipes",
         )
+        moved = check_recipe_ingredients(result.get("recipes", []), items)
         result["seconds"] = round(time.time() - started, 1)
-        tracing.set_result(span, ingredients=len(items), recipes=len(result.get("recipes", [])))
+        tracing.set_result(
+            span,
+            ingredients=len(items),
+            recipes=len(result.get("recipes", [])),
+            ingredients_not_in_fridge=moved,
+        )
         return result
 
 
