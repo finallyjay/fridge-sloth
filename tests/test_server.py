@@ -90,6 +90,23 @@ def test_match_to_an_item_that_was_never_seen_is_unsure(monkeypatch: pytest.Monk
     assert result["grocery_list"] == []
 
 
+def test_staples_the_model_dropped_fall_back_to_text_matching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Seen with gemma3:12b: the matching step occasionally comes back without the staples.
+    ask = fake_gemma(SEEN, {"staples": []})
+    monkeypatch.setattr(server, "ask_gemma", ask)
+
+    result = server.scan_fridge("img", ["milk", "cheese", "eggs", "butter"])
+
+    assert result["staples"] == [
+        {"name": "milk", "status": "stocked"},
+        {"name": "cheese", "status": "stocked"},
+        {"name": "eggs", "status": "low"},
+        {"name": "butter", "status": "unsure"},
+    ]
+
+
 def test_suggest_recipes_lists_items_and_adds_timing(monkeypatch: pytest.MonkeyPatch) -> None:
     ask = fake_gemma({"recipes": []})
     monkeypatch.setattr(server, "ask_gemma", ask)

@@ -154,6 +154,17 @@ def ask_gemma(message: dict[str, Any], schema: dict[str, Any], temperature: floa
         return json.loads(json.loads(resp.read())["message"]["content"])
 
 
+def fallback_match(staple: str, amounts: dict[str, str]) -> dict[str, str]:
+    """Plain text match for a staple the model left out of its answer ("cheese" ~ "cheddar cheese").
+
+    No text match means we can't tell, not that it's missing: the model never ruled on it.
+    """
+    for item in amounts:
+        if staple.lower() in item or item in staple.lower():
+            return {"match": "yes", "seen_item": item}
+    return {"match": "", "seen_item": ""}
+
+
 def scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
     started = time.time()
     vision = {"role": "user", "content": SEEN_PROMPT, "images": [image_b64]}
@@ -175,7 +186,7 @@ def scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
     by_name = {m["name"].strip().lower(): m for m in matched}
     result_staples: list[dict[str, str]] = []
     for name in staples:
-        m = by_name.get(name.lower(), {"match": "", "seen_item": ""})
+        m = by_name.get(name.lower()) or fallback_match(name, amounts)
         seen_item = m.get("seen_item", "").strip().lower()
         if m["match"] == "yes" and seen_item in amounts:
             status = "low" if amounts[seen_item] == "low" else "stocked"
