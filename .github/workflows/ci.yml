@@ -23,6 +23,7 @@ jobs:
           cache-dependency-path: |
             requirements-dev.txt
             requirements-sentry.txt
+            requirements-demo.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
@@ -49,6 +50,7 @@ jobs:
           cache-dependency-path: |
             requirements-dev.txt
             requirements-sentry.txt
+            requirements-demo.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
