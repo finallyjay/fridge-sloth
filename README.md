@@ -84,6 +84,12 @@ SENTRY_DSN=https://...ingest.sentry.io/... python3 server.py
 Each scan becomes an `invoke_agent` trace with one `chat` span per Gemma call (`vision`, `matching`, `recipes`),
 with the model, token counts and Ollama's own timings (model load, prompt processing, generation).
 
+What it looks like for the messy example photo, before and after the fix in #4:
+
+| Before: Gemma loops in the vision step for 4.5 min, then the scan fails | After: vision 44 s, matching 25 s |
+|---|---|
+| ![Sentry trace of a scan where the vision call ran 4.46 minutes](docs/images/sentry-trace-looping-scan.png) | ![Sentry trace of a scan with a 44 s vision call and a 25 s matching call](docs/images/sentry-trace-fixed-scan.png) |
+
 **Only metadata is sent.** The photo, the prompts and Gemma's answers never leave your machine;
 [a test](tests/test_tracing.py) checks exactly that.
 
