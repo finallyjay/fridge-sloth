@@ -5,6 +5,7 @@ Runs fully offline on Gemma via Ollama.
 
 import json
 import os
+import re
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -161,16 +162,25 @@ def ask_gemma(
     return json.loads(response["message"]["content"])
 
 
+def mentions(item: str, name: str) -> bool:
+    """True if `name` appears in `item` as whole words, allowing singular and plural.
+
+    "cheese" is in "cheddar cheese" and "egg" counts for "eggs" (or "tomato" for "tomatoes").
+    Only this direction is checked: seeing "orange" is not "orange juice". Whole words only:
+    an "eggplant" is not an "egg".
+    """
+    name, item = name.strip().lower(), item.strip().lower()
+    stems = {name, name.removesuffix("s"), name.removesuffix("es")}
+    return any(s and re.search(rf"\b{re.escape(s)}(?:e?s)?\b", item) for s in stems)
+
+
 def fallback_match(staple: str, amounts: dict[str, str]) -> dict[str, str]:
     """Plain text match for a staple the model left out of its answer ("cheese" ~ "cheddar cheese").
 
     No text match means we can't tell, not that it's missing: the model never ruled on it.
     """
-    # Only the staple inside the seen item, never the reverse: seeing "orange" must not
-    # count as "orange juice". The singular form lets "egg" count for "eggs".
-    names = {staple.lower(), staple.lower().removesuffix("s")}
     for item in amounts:
-        if item and any(name in item for name in names):
+        if mentions(item, staple):
             return {"match": "yes", "seen_item": item}
     return {"match": "", "seen_item": ""}
 
@@ -229,6 +239,27 @@ def _scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
     return result
 
 
+def check_recipe_ingredients(recipes: list[dict[str, Any]], items: list[str]) -> int:
+    """Move "from your fridge" ingredients that weren't actually seen into "need to buy".
+
+    Gemma sometimes ignores the rule and "uses" food that isn't there (a banana that was
+    never in the photo). Returns how many ingredients were moved.
+    """
+    moved = 0
+    for recipe in recipes:
+        need = recipe.setdefault("need_to_buy", [])
+        uses = []
+        for ingredient in recipe.get("uses", []):
+            if any(mentions(item, ingredient) for item in items):
+                uses.append(ingredient)
+            else:
+                moved += 1
+                if ingredient.strip().lower() not in (n.strip().lower() for n in need):
+                    need.append(ingredient.strip())
+        recipe["uses"] = uses
+    return moved
+
+
 def suggest_recipes(items: list[str]) -> dict[str, Any]:
     with tracing.agent("recipes", MODEL) as span:
         started = time.time()
@@ -242,8 +273,14 @@ def suggest_recipes(items: list[str]) -> dict[str, Any]:
             temperature=0.7,
             step="recipes",
         )
+        moved = check_recipe_ingredients(result.get("recipes", []), items)
         result["seconds"] = round(time.time() - started, 1)
-        tracing.set_result(span, ingredients=len(items), recipes=len(result.get("recipes", [])))
+        tracing.set_result(
+            span,
+            ingredients=len(items),
+            recipes=len(result.get("recipes", [])),
+            ingredients_not_in_fridge=moved,
+        )
         return result
 
 
