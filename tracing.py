@@ -5,6 +5,7 @@ Only metadata leaves the machine: which step ran, the model, timings and token c
 Never the photo, the prompts or Gemma's answers.
 """
 
+import json
 import os
 from contextlib import AbstractContextManager, nullcontext
 from typing import Any
@@ -70,6 +71,8 @@ def record_response(span: Any, response: dict[str, Any]) -> None:
     if span is None:
         return
     span.set_data("gen_ai.response.model", response.get("model"))
+    if response.get("done_reason"):
+        span.set_data("gen_ai.response.finish_reasons", json.dumps([response["done_reason"]]))
     input_tokens = response.get("prompt_eval_count") or 0
     output_tokens = response.get("eval_count") or 0
     span.set_data("gen_ai.usage.input_tokens", input_tokens)
