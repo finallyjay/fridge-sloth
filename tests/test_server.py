@@ -17,8 +17,12 @@ def fake_gemma(*responses: Any) -> Any:
     calls: list[dict[str, Any]] = []
     queue = list(responses)
 
-    def ask(message: dict[str, Any], schema: dict[str, Any], temperature: float = 0) -> Any:
-        calls.append({"message": message, "schema": schema, "temperature": temperature})
+    def ask(
+        message: dict[str, Any], schema: dict[str, Any], temperature: float = 0, step: str = ""
+    ) -> Any:
+        calls.append(
+            {"message": message, "schema": schema, "temperature": temperature, "step": step}
+        )
         return queue.pop(0)
 
     ask.calls = calls  # type: ignore[attr-defined]

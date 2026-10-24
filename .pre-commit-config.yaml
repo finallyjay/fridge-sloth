@@ -18,3 +18,5 @@ repos:
     rev: v2.4.0
     hooks:
       - id: mypy
+        additional_dependencies:
+          - sentry-sdk==2.73.0

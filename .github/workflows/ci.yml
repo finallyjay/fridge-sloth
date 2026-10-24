@@ -20,7 +20,9 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements-sentry.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
@@ -32,7 +34,7 @@ jobs:
         run: ruff format --check .
 
       - name: Mypy
-        run: mypy server.py scripts tests
+        run: mypy server.py tracing.py scripts tests
 
   test:
     runs-on: ubuntu-latest
@@ -44,7 +46,9 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements-sentry.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
