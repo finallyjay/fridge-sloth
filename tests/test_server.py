@@ -107,6 +107,18 @@ def test_staples_the_model_dropped_fall_back_to_text_matching(
     ]
 
 
+def test_fallback_never_matches_a_shorter_seen_item(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = {"seen": [{"item": "orange", "amount": "plenty"}, {"item": "egg", "amount": "some"}]}
+    monkeypatch.setattr(server, "ask_gemma", fake_gemma(seen, {"staples": []}))
+
+    result = server.scan_fridge("img", ["orange juice", "eggs"])
+
+    assert result["staples"] == [
+        {"name": "orange juice", "status": "unsure"},
+        {"name": "eggs", "status": "stocked"},
+    ]
+
+
 def test_suggest_recipes_lists_items_and_adds_timing(monkeypatch: pytest.MonkeyPatch) -> None:
     ask = fake_gemma({"recipes": []})
     monkeypatch.setattr(server, "ask_gemma", ask)

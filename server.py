@@ -159,8 +159,11 @@ def fallback_match(staple: str, amounts: dict[str, str]) -> dict[str, str]:
 
     No text match means we can't tell, not that it's missing: the model never ruled on it.
     """
+    # Only the staple inside the seen item, never the reverse: seeing "orange" must not
+    # count as "orange juice". The singular form lets "egg" count for "eggs".
+    names = {staple.lower(), staple.lower().removesuffix("s")}
     for item in amounts:
-        if staple.lower() in item or item in staple.lower():
+        if item and any(name in item for name in names):
             return {"match": "yes", "seen_item": item}
     return {"match": "", "seen_item": ""}
 
