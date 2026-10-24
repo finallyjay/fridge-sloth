@@ -32,6 +32,10 @@ def init() -> bool:
         dsn=dsn,
         traces_sample_rate=1.0,
         send_default_pii=False,
+        # By default error events include every stack frame's local variables: here that's the
+        # prompt, Gemma's answer and the base64 photo. That broke the privacy promise, and the
+        # photo made real errors too big for Sentry, which rejected them ("too_large:event").
+        include_local_variables=False,
         environment=os.environ.get("SENTRY_ENVIRONMENT", "local"),
     )
     enabled = True

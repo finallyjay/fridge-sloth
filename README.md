@@ -101,7 +101,7 @@ And after moving staples matching out of Gemma: a scan is one Gemma call plus tw
 
 ![Sentry Agent Activity for recipes: one gemma3:4b call of 31.6 s, then check_recipe_ingredients](docs/images/sentry-agent-recipes.png)
 
-**Only metadata is sent.** The photo, the prompts and Gemma's answers never leave your machine;
+**Only metadata is sent**, in traces and in error reports. The photo, the prompts and Gemma's answers never leave your machine;
 [a test](tests/test_tracing.py) checks exactly that.
 
 ## Try it with the example photos
