@@ -76,22 +76,33 @@ def test_scan_sends_metadata_but_never_the_photo_or_prompts(
 ) -> None:
     replies = iter(
         [
-            ollama_reply({"seen": [{"item": "eggs", "amount": "some"}]}),
-            ollama_reply({"staples": [{"name": "eggs", "match": "yes", "seen_item": "eggs"}]}),
+            ollama_reply(
+                {
+                    "seen": [
+                        {"item": "eggs", "amount": "some"},
+                        {"item": "cheddar cheese", "amount": "some"},
+                    ]
+                }
+            )
         ]
     )
     monkeypatch.setattr(server.urllib.request, "urlopen", lambda req, timeout: next(replies))
 
-    result = server.scan_fridge(SECRET_PHOTO, ["eggs"])
+    result = server.scan_fridge(SECRET_PHOTO, ["eggs", "cheese", "butter"])
     sentry_sdk.flush()
     sent = "\n".join(transport.sent)
 
-    assert result["grocery_list"] == []
+    assert result["grocery_list"] == ["butter"]
     assert "gen_ai.invoke_agent" in sent
-    assert sent.count('"gen_ai.chat"') >= 2
-    for expected in ('"vision"', '"matching"', "gen_ai.usage.input_tokens", "items_seen"):
+    assert '"gen_ai.chat"' in sent
+    for expected in ('"vision"', "gen_ai.usage.input_tokens", "items_seen"):
         assert expected in sent
+    # The server's checks show up as tool calls, with counts.
+    for tool in ("dedupe_seen_items", "match_staples_by_name"):
+        assert f"execute_tool {tool}" in sent
+    assert "gen_ai.execute_tool" in sent and '"fridge_sloth.matched"' in sent
     # The privacy promise: no photo, no prompts, no answers.
     assert SECRET_PHOTO not in sent
     assert "inside of a fridge" not in sent
     assert '"seen_item"' not in sent
+    assert "cheddar" not in sent and "butter" not in sent  # no food names either

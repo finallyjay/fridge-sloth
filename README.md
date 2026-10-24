@@ -17,9 +17,9 @@ Built for the [Hacktoberfest Open-Source AI Challenge, Week 3: Slow and Steady](
 │ fridge photo │ ───────────────────────> │ items actually seen  │
 └──────────────┘        Gemma 3           │ + amount left        │
                                           └──────────┬───────────┘
-┌──────────────┐   2. text-only matching             │
+┌──────────────┐   2. match by name                  │
 │ your staples │ ────────────────────────────────────┤
-└──────────────┘        Gemma 3                      │
+└──────────────┘     plain code, ~1 ms               │
                                           ┌──────────▼───────────┐
                                           │ grocery list         │
                                           │ (missing / low)      │
@@ -32,10 +32,13 @@ Built for the [Hacktoberfest Open-Source AI Challenge, Week 3: Slow and Steady](
 
 1. **Vision:** Gemma lists the food it can actually see in the photo, with a rough amount (`plenty`, `some`, `low`).
    It is *not* shown your staples list. When it was, it "found" staples that weren't there.
-2. **Matching:** a text-only call matches your staples (the things you always want at home) against what was seen.
-   A match only counts if the matched item really is in step 1's list. Anything missing or low goes on the grocery list.
+2. **Matching:** your staples (the things you always want at home) are matched against what was seen **by name, in plain
+   code**: "cheddar cheese" is cheese, but "tomato sauce" is not tomatoes. Anything missing or low goes on the grocery list.
+   This used to be a second Gemma call. Sentry traces showed it took ~25 s, and the 4B model over-claimed matches,
+   so it's now ~1 ms and stricter. Missing a synonym only means buying something you already have.
 3. **Recipes:** Gemma suggests three healthy meals built mostly from what's in the fridge: real dishes based on
    vegetables, whole grains, legumes, eggs, fish or lean protein, 30 minutes or less, at most 5 steps.
+   Any "from your fridge" ingredient that wasn't actually seen is moved to the grocery list.
    Missing ingredients can be added to the grocery list with one tap.
 
 Every call uses a JSON schema in Ollama's `format` field, so the server always gets structured data back.
@@ -81,7 +84,9 @@ pip install -r requirements-sentry.txt
 SENTRY_DSN=https://...ingest.sentry.io/... python3 server.py
 ```
 
-Each scan becomes an `invoke_agent` trace with one `chat` span per Gemma call (`vision`, `matching`, `recipes`),
+Each scan or recipe request becomes an `invoke_agent` trace with a `chat` span per Gemma call (`vision`, `recipes`)
+and an `execute_tool` span for each check the server runs on Gemma's output (`dedupe_seen_items`,
+`match_staples_by_name`, `check_recipe_ingredients`),
 with the model, token counts and Ollama's own timings (model load, prompt processing, generation).
 
 What it looks like for the messy example photo, before and after the fix in #4:
@@ -89,6 +94,12 @@ What it looks like for the messy example photo, before and after the fix in #4:
 | Before: Gemma loops in the vision step for 4.5 min, then the scan fails | After: vision 44 s, matching 25 s |
 |---|---|
 | ![Sentry trace of a scan where the vision call ran 4.46 minutes](docs/images/sentry-trace-looping-scan.png) | ![Sentry trace of a scan with a 44 s vision call and a 25 s matching call](docs/images/sentry-trace-fixed-scan.png) |
+
+And after moving staples matching out of Gemma: a scan is one Gemma call plus two ~1 ms checks (Sentry's Agent Activity view).
+
+![Sentry Agent Activity for a scan: one gemma3:4b call of 19.9 s, then dedupe_seen_items and match_staples_by_name](docs/images/sentry-agent-scan.png)
+
+![Sentry Agent Activity for recipes: one gemma3:4b call of 31.6 s, then check_recipe_ingredients](docs/images/sentry-agent-recipes.png)
 
 **Only metadata is sent.** The photo, the prompts and Gemma's answers never leave your machine;
 [a test](tests/test_tracing.py) checks exactly that.

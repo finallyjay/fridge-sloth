@@ -59,39 +59,6 @@ If you see a closed, opaque container and can't tell what's inside, skip it.
 Only list things you can see. Never guess items that might be hidden."""
 
 # Step 2 is text only: match the household's staples against what was actually seen.
-MATCH_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "staples": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "match": {"type": "string", "enum": ["yes", "no"]},
-                    "seen_item": {"type": "string"},
-                },
-                "required": ["name", "match", "seen_item"],
-            },
-        },
-    },
-    "required": ["staples"],
-}
-
-MATCH_PROMPT = """Items seen in a fridge:
-{seen}
-
-For EACH staple below, say whether it is among the seen items:
-{staples}
-
-- "yes": a seen item is this staple (e.g. "cheddar cheese" counts as "cheese",
-  "2% milk" counts as "milk"). Put that item in seen_item.
-- "no": nothing seen matches. Leave seen_item empty.
-
-Be strict: a different food is not a match (yogurt is not milk, pesto is not lettuce).
-Return the staples in the same order and spelling as given."""
-
-
 RECIPE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -171,15 +138,16 @@ def ask_gemma(
 
 
 def mentions(item: str, name: str) -> bool:
-    """True if `name` appears in `item` as whole words, allowing singular and plural.
+    """True if `item` is a `name`: the name is the food the item ends with, singular or plural.
 
-    "cheese" is in "cheddar cheese" and "egg" counts for "eggs" (or "tomato" for "tomatoes").
-    Only this direction is checked: seeing "orange" is not "orange juice". Whole words only:
-    an "eggplant" is not an "egg".
+    "cheddar cheese" is cheese and "free-range eggs" are eggs (or "cherry tomatoes" tomatoes).
+    But the name has to be what the item *is*, not a flavour or an ingredient of it:
+    "tomato sauce" is not tomatoes, "milk chocolate" is not milk, "orange" is not orange juice,
+    and an "eggplant" is not an egg.
     """
     name, item = name.strip().lower(), item.strip().lower()
     stems = {name, name.removesuffix("s"), name.removesuffix("es")}
-    return any(s and re.search(rf"\b{re.escape(s)}(?:e?s)?\b", item) for s in stems)
+    return any(s and re.search(rf"\b{re.escape(s)}(?:e?s)?$", item) for s in stems)
 
 
 def dedupe(seen: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -190,15 +158,9 @@ def dedupe(seen: list[dict[str, str]]) -> list[dict[str, str]]:
     return list(unique.values())
 
 
-def fallback_match(staple: str, amounts: dict[str, str]) -> dict[str, str]:
-    """Plain text match for a staple the model left out of its answer ("cheese" ~ "cheddar cheese").
-
-    No text match means we can't tell, not that it's missing: the model never ruled on it.
-    """
-    for item in amounts:
-        if mentions(item, staple):
-            return {"match": "yes", "seen_item": item}
-    return {"match": "", "seen_item": ""}
+def local_match(staple: str, seen_items: list[str]) -> str | None:
+    """The first seen item that is this staple by plain word matching, without the model."""
+    return next((item for item in seen_items if mentions(item, staple)), None)
 
 
 def scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
@@ -216,34 +178,30 @@ def scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
 def _scan_fridge(image_b64: str, staples: list[str]) -> dict[str, Any]:
     started = time.time()
     vision = {"role": "user", "content": SEEN_PROMPT, "images": [image_b64]}
-    seen = dedupe(ask_gemma(vision, SEEN_SCHEMA, step="vision")["seen"])
+    raw_seen = ask_gemma(vision, SEEN_SCHEMA, step="vision")["seen"]
+    with tracing.tool("dedupe_seen_items") as span:
+        seen = dedupe(raw_seen)
+        tracing.set_result(span, items_in=len(raw_seen), items_out=len(seen))
     amounts = {s["item"].strip().lower(): s["amount"] for s in seen}
+    seen_items = list(amounts)
 
-    matched = ask_gemma(
+    # Staples are matched by name, not by Gemma. Asked to match staples under "other names",
+    # the 4B model over-claimed (spinach -> cheddar cheese), and its yes/no answer per staple
+    # was the slowest part of a scan (~25 s in Sentry traces). Missing a synonym only means
+    # buying something you have; a false match means not buying something you need.
+    with tracing.tool("match_staples_by_name") as span:
+        found = {s: item for s in staples if (item := local_match(s, seen_items))}
+        tracing.set_result(span, staples=len(staples), matched=len(found))
+
+    result_staples = [
         {
-            "role": "user",
-            "content": MATCH_PROMPT.format(
-                seen="\n".join(f"- {s['item']}" for s in seen) or "- nothing",
-                staples="\n".join(f"- {s}" for s in staples),
-            ),
-        },
-        MATCH_SCHEMA,
-        step="matching",
-    )["staples"]
-
-    # Small models sometimes drop or rename staples, or "match" to an item that was never seen.
-    by_name = {m["name"].strip().lower(): m for m in matched}
-    result_staples: list[dict[str, str]] = []
-    for name in staples:
-        m = by_name.get(name.lower()) or fallback_match(name, amounts)
-        seen_item = m.get("seen_item", "").strip().lower()
-        if m["match"] == "yes" and seen_item in amounts:
-            status = "low" if amounts[seen_item] == "low" else "stocked"
-        elif m["match"] == "no":
-            status = "missing"
-        else:
-            status = "unsure"
-        result_staples.append({"name": name, "status": status})
+            "name": name,
+            "status": "missing"
+            if name not in found
+            else ("low" if amounts[found[name]] == "low" else "stocked"),
+        }
+        for name in staples
+    ]
 
     result: dict[str, Any] = {
         "seen": seen,
@@ -289,7 +247,9 @@ def suggest_recipes(items: list[str]) -> dict[str, Any]:
             temperature=0.7,
             step="recipes",
         )
-        moved = check_recipe_ingredients(result.get("recipes", []), items)
+        with tracing.tool("check_recipe_ingredients") as tool_span:
+            moved = check_recipe_ingredients(result.get("recipes", []), items)
+            tracing.set_result(tool_span, moved_to_grocery_list=moved)
         result["seconds"] = round(time.time() - started, 1)
         tracing.set_result(
             span,
