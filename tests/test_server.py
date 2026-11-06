@@ -237,6 +237,21 @@ def test_scan_accepts_data_urls(base_url: str, monkeypatch: pytest.MonkeyPatch) 
     assert received == {"image": "QUJD", "staples": ["milk"]}
 
 
+@pytest.mark.parametrize("payload", [{}, {"image": None}, {"image": ""}, ["x"]])
+def test_scan_needs_image(base_url: str, payload: Any) -> None:
+    status, body = request(base_url + "/api/scan", payload)
+    assert status == 400
+    assert body == {"error": "no photo provided"}
+
+
+def test_scan_without_body_is_rejected(base_url: str) -> None:
+    req = urllib.request.Request(base_url + "/api/scan", data=b"", method="POST")
+    with pytest.raises(urllib.error.HTTPError) as err:
+        urllib.request.urlopen(req)
+    assert err.value.code == 400
+    assert json.loads(err.value.read()) == {"error": "no photo provided"}
+
+
 def test_recipes_need_items(base_url: str) -> None:
     status, body = request(base_url + "/api/recipes", {"items": []})
     assert status == 400

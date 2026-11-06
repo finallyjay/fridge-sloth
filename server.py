@@ -285,8 +285,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if self.path == "/api/scan":
                 body = self._read_json()
-                image = body["image"].split(",", 1)[-1]  # accept data URLs
-                self._send(200, scan_fridge(image, body.get("staples") or load_staples()))
+                image = body.get("image") if isinstance(body, dict) else None
+                if not isinstance(image, str) or not image:
+                    self._send(400, {"error": "no photo provided"})
+                else:
+                    image = image.split(",", 1)[-1]  # accept data URLs
+                    self._send(200, scan_fridge(image, body.get("staples") or load_staples()))
             elif self.path == "/api/recipes":
                 items = self._read_json().get("items") or []
                 if not items:
