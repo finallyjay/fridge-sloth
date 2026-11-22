@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Snap your fridge, get a grocery list and healthy meals. Runs fully offline on Gemma via Ollama."
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 authors = [
     { name = "Jose Antonio Granero" },
 ]
@@ -17,7 +17,7 @@ sentry = ["sentry-sdk>=2.64,<3"]
 demo = ["elevenlabs>=2.74,<3", "python-dotenv>=1.2,<2"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py315"
 line-length = 100
 
 [tool.ruff.lint]
@@ -33,7 +33,7 @@ select = [
 ]
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.15"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
