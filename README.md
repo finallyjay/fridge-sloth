@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/finallyjay/fridge-sloth/actions/workflows/ci.yml/badge.svg)](https://github.com/finallyjay/fridge-sloth/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.15+](https://img.shields.io/badge/python-3.15+-blue.svg)](https://www.python.org/downloads/)
 [![Gemma 3](https://img.shields.io/badge/model-Gemma%203-4285F4.svg)](https://ai.google.dev/gemma)
 
 Snap a photo of your fridge, get a **grocery list** and **three healthy meals** you can cook with what's already there.
