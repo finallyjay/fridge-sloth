@@ -1,2 +1,2 @@
-elevenlabs==2.78.0
+elevenlabs==2.79.0
 python-dotenv==1.2.4
